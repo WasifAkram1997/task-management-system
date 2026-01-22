@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # PostgreSQL for Auth Service
+  # ==========================================
+  auth-db:
+    image: postgres:15-alpine
+    container_name: auth-postgres
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}  # From .env file
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # ==========================================
+  # PostgreSQL for Task Service
+  # ==========================================
+  task-db:
+    image: postgres:15-alpine
+    container_name: task-postgres
+    environment:
+      POSTGRES_DB: task_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${TASK_DB_PASSWORD}  # From .env file
+    ports:
+      - "5433:5432"
+    volumes:
+      - task-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # ==========================================
+  # Redis for Caching & Rate Limiting
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: task-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}  # Password protected
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # ==========================================
+  # RabbitMQ for Message Queue
+  # ==========================================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: task-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}      # From .env file
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}  # From .env file
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - task-network
+    restart: unless-stopped
+
+# ==========================================
+# Persistent Storage Volumes
+# ==========================================
+volumes:
+  auth-db-data:
+    driver: local
+  task-db-data:
+    driver: local
+  redis-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+
+# ==========================================
+# Internal Network
+# ==========================================
+networks:
+  task-network:
+    driver: bridge
