@@ -9,6 +9,7 @@ from models import User
 from database import get_db
 from config import get_settings
 import uuid
+import hashlib
 
 #Load settings to get secrets and configurations
 settings = get_settings()
@@ -21,10 +22,12 @@ security = HTTPBearer()
 
 def hash_pwd(pwd: str) -> str:
     """Hash password using bcrypt"""
+    # digest = hashlib.sha256(pwd.encode("utf-8")).digest()
     return pwd_context.hash(pwd)
 
 def verify_password(plain_pwd: str, hashed_pwd: str) -> bool:
     """verify password against a hash"""
+    # digest = hashlib.sha256(plain_pwd.encode("utf-8")).digest()
     return pwd_context.verify(plain_pwd, hashed_pwd)
 
 #JWT token creation

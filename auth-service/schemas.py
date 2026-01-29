@@ -7,10 +7,7 @@ from datetime import datetime
 from typing import Optional
 import uuid
 
-
-# ============================================
 # User Schemas
-# ============================================
 
 class UserBase(BaseModel):
     """Base user schema"""
@@ -38,9 +35,7 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ============================================
 # Authentication Schemas
-# ============================================
 
 class LoginRequest(BaseModel):
     """Schema for login request"""
@@ -65,10 +60,7 @@ class AccessTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-
-# ============================================
 # Standard Response Schemas
-# ============================================
 
 class MessageResponse(BaseModel):
     """Standard message response"""

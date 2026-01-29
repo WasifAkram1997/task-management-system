@@ -19,7 +19,8 @@ async def lifespan(app:FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
-    description="Authentication service for task management system"
+    description="Authentication service for task management system",
+    lifespan=lifespan
 )
 
 #Health check endpoint
@@ -52,7 +53,7 @@ def register(user_data: schemas.UserCreate, db : Session = Depends(get_db)):
     new_user = models.User(
         email=user_data.email,
         name= user_data.name,
-        hashed_pwd = hashed_pwd
+        hashed_password = hashed_pwd
     )
 
     #Save to db
@@ -145,6 +146,63 @@ def refresh_access_token(refresh_token: schemas.RefreshTokenRequest, db : Sessio
         "access_token": access_token
     }
 
+#User logout
+@app.post("/auth/logout", response_model=schemas.MessageResponse)
+def logout(request: schemas.RefreshTokenRequest, db: Session = Depends(get_db)):
+    """Logout and revoke refresh token"""
+
+    db_token = db.query(models.RefreshToken).filter(models.RefreshToken.token == request.refresh_token).first()
+
+    if not db_token:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Refresh token not found."
+        )
+    
+    db_token.revoked = True
+    db.commit()
+
+    return {"message": "Logged out successfully"}
+
+#Get current user
+@app.get("/auth/me", response_model=schemas.UserResponse)
+def get_current_user_profile(current_user: models.User = Depends(auth.get_current_user)):
+    """Get current authenticated user profile"""
+    return current_user
+
+@app.put("/auth/me", response_model=schemas.UserResponse)
+def update_profile(
+    update_data: schemas.UserUpdate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update current user profile"""
+    
+    # Update email if provided
+    if update_data.email is not None:
+        # Check if new email already exists
+        existing_user = db.query(models.User).filter(
+            models.User.email == update_data.email,
+            models.User.id != current_user.id
+        ).first()
+        
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already in use"
+            )
+        
+        current_user.email = update_data.email
+    
+    # Update name if provided
+    if update_data.name is not None:
+        current_user.name = update_data.name
+    
+    # Save changes
+    db.commit()
+    db.refresh(current_user)
+    
+    return current_user
     
 
 

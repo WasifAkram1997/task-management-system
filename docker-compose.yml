@@ -10,9 +10,9 @@ services:
     environment:
       POSTGRES_DB: auth_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}  # From .env file
+      POSTGRES_PASSWORD: auth_secure_pass_2024_xyz
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - auth-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -35,7 +35,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${TASK_DB_PASSWORD}  # From .env file
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
       - task-db-data:/var/lib/postgresql/data
     healthcheck:
