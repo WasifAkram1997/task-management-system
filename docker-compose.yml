@@ -10,7 +10,7 @@ services:
     environment:
       POSTGRES_DB: auth_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: auth_secure_pass_2024_xyz
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
@@ -33,7 +33,7 @@ services:
     environment:
       POSTGRES_DB: task_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${TASK_DB_PASSWORD}  # From .env file
+      POSTGRES_PASSWORD: ${TASK_DB_PASSWORD}
     ports:
       - "5434:5432"
     volumes:
@@ -53,7 +53,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: task-redis
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}  # Password protected
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     ports:
       - "6379:6379"
     volumes:
@@ -74,11 +74,11 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: task-rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}      # From .env file
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}  # From .env file
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     ports:
-      - "5672:5672"   # AMQP protocol
-      - "15672:15672" # Management UI
+      - "5672:5672"
+      - "15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
@@ -90,22 +90,82 @@ services:
       - task-network
     restart: unless-stopped
 
-# ==========================================
-# Persistent Storage Volumes
-# ==========================================
+  # ==========================================
+  # Auth Service
+  # ==========================================
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    environment:
+      - AUTH_DB_PASSWORD=${AUTH_DB_PASSWORD}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DATABASE_URL=postgresql://postgres:${AUTH_DB_PASSWORD}@auth-db:5432/auth_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # ==========================================
+  # Task Service
+  # ==========================================
+  task-service:
+    build:
+      context: ./task-service
+      dockerfile: Dockerfile
+    container_name: task-service
+    environment:
+      - TASK_DB_PASSWORD=${TASK_DB_PASSWORD}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DATABASE_URL=postgresql://postgres:${TASK_DB_PASSWORD}@task-db:5432/task_db
+    ports:
+      - "8002:8002"
+    depends_on:
+      task-db:
+        condition: service_healthy
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # ==========================================
+  # API Gateway
+  # ==========================================
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    environment:
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - TASK_SERVICE_URL=http://task-service:8002
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      task-service:
+        condition: service_started
+    networks:
+      - task-network
+    restart: unless-stopped
+
 volumes:
   auth-db-data:
-    driver: local
   task-db-data:
-    driver: local
   redis-data:
-    driver: local
   rabbitmq-data:
-    driver: local
 
-# ==========================================
-# Internal Network
-# ==========================================
 networks:
   task-network:
     driver: bridge

@@ -36,6 +36,6 @@ def get_settings() -> Settings:
     """Get cached settings instance"""
     # return Settings()
     s = Settings()
-    print(f"DEBUG: AUTH_DB_PASSWORD = {s.AUTH_DB_PASSWORD}")  # Debug line
-    print(f"DEBUG: Database URL = {s.get_database_url()}")    # Debug line
+    # print(f"DEBUG: AUTH_DB_PASSWORD = {s.AUTH_DB_PASSWORD}") 
+    # print(f"DEBUG: Database URL = {s.get_database_url()}")    
     return s    
