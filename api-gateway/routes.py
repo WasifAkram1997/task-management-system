@@ -51,9 +51,9 @@ async def validate_jwt(req: Request) -> str:
     
 def get_backend_url(path: str) -> str:
     if path.startswith("auth"):
-        return f"{settings.AUTH_SERVICE_URL}/{path}"
+        return settings.AUTH_SERVICE_URL
     elif path.startswith("tasks"):
-        return f"{settings.TASK_SERVICE_URL}/{path}"
+        return settings.TASK_SERVICE_URL
     else:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -69,13 +69,14 @@ async def forward_request(request: Request, backend_url: str, path: str, user_id
     
 
     body = await request.body()
+    url = f"{backend_url}/{path}"
 
     backend_response = await http_client.client.request(
             method=method,
-            url=backend_url,
+            url=url,
             headers=headers,
             content=body,
-            timeout=settings.HTTP_TIMEOUT
+            # timeout=settings.HTTP_TIMEOUT
         )
 
     response = Response(
