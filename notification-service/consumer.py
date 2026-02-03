@@ -56,18 +56,9 @@ def start_consuming():
     except KeyboardInterrupt:
         logger.info("\n👋 Shutting down...")
         rabbitmq_service.disconnect()
-    
+
+    # Catch any unexpected errors during consumption (connection issues, etc.)
     except Exception as e:
         logger.error(f"Error in consumer: {e}")
         rabbitmq_service.disconnect()
         raise
-
-
-if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    start_consuming()
