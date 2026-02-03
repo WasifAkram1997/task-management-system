@@ -154,5 +154,5 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             )
             
             return payload.get("sub")
-        except:
+        except JWTError:
             return None

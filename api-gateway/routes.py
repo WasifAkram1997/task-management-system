@@ -35,7 +35,7 @@ async def validate_jwt(req: Request) -> str:
         )
     token = auth_header.replace("Bearer ", "")
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=settings.JWT_ALGORITHM)
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(
@@ -76,13 +76,23 @@ async def forward_request(request: Request, backend_url: str, path: str, user_id
             url=url,
             headers=headers,
             content=body,
+            params=request.query_params,
             # timeout=settings.HTTP_TIMEOUT
         )
 
-    response = Response(
+    # Strip hop-by-hop headers
+    unsafe_headers = {
+        "connection", "keep-alive", "transfer-encoding",
+        "te", "trailer", "upgrade", "proxy-authorization"
+    }
+
+    safe_headers = {
+        k: v for k, v in backend_response.headers.items()
+        if k.lower() not in unsafe_headers
+    }
+
+    return Response(
         content=backend_response.content,
         status_code=backend_response.status_code,
-        headers=dict(backend_response.headers)
+        headers=safe_headers
     )
-
-    return response

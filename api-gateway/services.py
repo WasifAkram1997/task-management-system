@@ -69,6 +69,9 @@ class RedisService:
             logger.error("Redis health check failed")
             return False
     async def increment_rate_limit(self, key: str, window: int) -> int:
+        if not self.client:
+            logger.error("Redis client not connected")
+            return 0 #Fail open
         try:
             count = await self.client.incr(key)
             if count == 1:
