@@ -8,7 +8,12 @@ settings = get_settings()
 http_client = get_http_client()
 
 async def proxy_request(request: Request, path: str):
-    user_id = await validate_jwt(request)
+
+    public_endpoints = ["auth/login", "auth/register", "auth/refresh-token"]
+    if any(path.startswith(endpoint) for endpoint in public_endpoints):
+        user_id = None
+    else:    
+        user_id = await validate_jwt(request)
 
     backend_url = get_backend_url(path)
 
@@ -46,11 +51,37 @@ async def validate_jwt(req: Request) -> str:
     
 def get_backend_url(path: str) -> str:
     if path.startswith("auth"):
-        return f"{settings.AUTH_SERVICE_URL}{path}"
+        return f"{settings.AUTH_SERVICE_URL}/{path}"
     elif path.startswith("tasks"):
-        return f"{settings.TASK_SERVICE_URL}{path}"
+        return f"{settings.TASK_SERVICE_URL}/{path}"
     else:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Service not found"
         )
+async def forward_request(request: Request, backend_url: str, path: str, user_id: str) -> Response:
+    method = request.method
+    headers = dict(request.headers)
+    if user_id:
+        headers["X-User-ID"] = user_id
+    headers.pop("Authorization", None)
+    headers.pop("Host", None)
+    
+
+    body = await request.body()
+
+    backend_response = await http_client.client.request(
+            method=method,
+            url=backend_url,
+            headers=headers,
+            content=body,
+            timeout=settings.HTTP_TIMEOUT
+        )
+
+    response = Response(
+        content=backend_response.content,
+        status_code=backend_response.status_code,
+        headers=dict(backend_response.headers)
+    )
+
+    return response
