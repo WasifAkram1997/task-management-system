@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     TASK_DB_PASSWORD: str
     JWT_SECRET_KEY: str
 
+    #RabbitMQ settings:
+    RABBITMQ_USER: str = ""
+    RABBITMQ_PASSWORD: str = ""
+    RABBITMQ_HOST: str = "localhost"
+    RABBITMQ_PORT: int = 5672
+    RABBITMQ_QUEUE: str = "notifications"
+
     # App settings with defaults
     APP_NAME: str = "Task Service"
     VERSION: str = "1.0.0"

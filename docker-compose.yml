@@ -123,10 +123,16 @@ services:
       - TASK_DB_PASSWORD=${TASK_DB_PASSWORD}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - DATABASE_URL=postgresql://postgres:${TASK_DB_PASSWORD}@task-db:5432/task_db
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
     ports:
       - "8002:8002"
     depends_on:
       task-db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - task-network
@@ -156,6 +162,26 @@ services:
         condition: service_started
       task-service:
         condition: service_started
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # ==========================================
+  # Notification Service
+  # ==========================================
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    environment:
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     networks:
       - task-network
     restart: unless-stopped

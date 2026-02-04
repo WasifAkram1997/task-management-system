@@ -9,6 +9,7 @@ from typing import List, Optional
 from database import get_db, init_db
 from config import get_settings
 from dependencies import get_current_user_id
+from publisher import publish_notification
 import models
 import schemas
 import uuid
@@ -66,6 +67,16 @@ def create_task(
     db.add(new_task)
     db.commit()
     db.refresh(new_task)
+
+    #Now we publish the message
+    publish_notification(
+        notification_type="task_created",
+        data={
+            "task_id": str(new_task.id),
+            "task_title": new_task.title,
+            "user_email": "user@example.com"
+        }
+    )
     
     return new_task
 
