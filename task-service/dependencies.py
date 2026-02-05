@@ -2,7 +2,7 @@
 Shared dependencies for FastAPI endpoints
 Handles JWT token verification
 """
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from config import get_settings
@@ -52,3 +52,22 @@ def get_current_user_id(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+def get_current_user_email(request: Request) -> str:
+    """
+    Extract user email from X-User-Email header
+    
+    :param request: Incoming request
+    :type request: Request
+    :return: User email
+    :rtype: str
+    """
+
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail = "User email not found in request"
+        )
+
+    return email

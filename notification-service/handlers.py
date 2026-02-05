@@ -5,6 +5,7 @@ Processes different types of notifications
 
 import logging
 import json
+from email_sender import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -53,19 +54,20 @@ def handle_task_created(data: dict):
     task_title = data.get("task_title")
     
     logger.info(f"📧 Task created notification for: {user_email}")
-    
-    # TODO: Actually send email (we'll implement this later)
-    # For now, just print to console
-    print("\n" + "="*50)
-    print("📧 EMAIL NOTIFICATION")
-    print("="*50)
-    print(f"TO: {user_email}")
-    print(f"SUBJECT: New Task Created")
-    print(f"BODY:")
-    print(f"  Task ID: {task_id}")
-    print(f"  Title: {task_title}")
-    print(f"  Your new task has been created successfully!")
-    print("="*50 + "\n")
+
+    subject = "New Task Created"
+    body = f"""Hello!
+    Your new task has been created sucessfully:
+    Task ID: {task_id}
+    Title: {task_title}
+
+    Thank you for using our Task management system."""
+
+    success = send_email(user_email, subject, body)
+
+    if not success:
+        logger.error(f"Failed to send email to {user_email}")
+
 
 
 def handle_task_updated(data: dict):

@@ -2,13 +2,13 @@
 Task Service - FastAPI Application
 Handles task and comment management
 """
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
 from typing import List, Optional
 from database import get_db, init_db
 from config import get_settings
-from dependencies import get_current_user_id
+from dependencies import get_current_user_id, get_current_user_email
 from publisher import publish_notification
 import models
 import schemas
@@ -55,6 +55,7 @@ def health_check():
 @app.post("/tasks", response_model=schemas.TaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(
     task_data: schemas.TaskCreate,
+    request: Request,
     current_user_id: uuid.UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -68,13 +69,15 @@ def create_task(
     db.commit()
     db.refresh(new_task)
 
+    user_email = get_current_user_email(request)
+
     #Now we publish the message
     publish_notification(
         notification_type="task_created",
         data={
             "task_id": str(new_task.id),
             "task_title": new_task.title,
-            "user_email": "user@example.com"
+            "user_email": user_email
         }
     )
     

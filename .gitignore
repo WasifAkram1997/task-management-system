@@ -49,3 +49,36 @@ htmlcov/
 # Redis dump
 dump.rdb
 
+# Test files
+test.db
+auth_db_test
+.pytest_cache/
+.coverage
+htmlcov/
+*.pyc
+__pycache__/
+
+# Virtual environments
+venv/
+env/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+
+# Logs
+*.log
+
+# Claude code files
+*.claude.md
+claude.md

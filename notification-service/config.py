@@ -21,11 +21,12 @@ class Settings(BaseSettings):
     RABBITMQ_PORT: int = 5672
     QUEUE_NAME: str =  "notifications"
 
-    # Email settings (we'll use these later)
+    # Email settings
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
+    SMTP_USER: str
+    SMTP_PASSWORD: str
+    SMTP_FROM_EMAIL: str
 
     class Config:
         env_file  = "../.env"
