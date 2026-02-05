@@ -32,12 +32,13 @@ def verify_password(plain_pwd: str, hashed_pwd: str) -> bool:
 
 #JWT token creation
 
-def create_access_token(user_id: uuid.UUID) -> str:
+def create_access_token(user_id: uuid.UUID, email: str) -> str:
     """Create JWT access token"""
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode = {
         "sub": str(user_id),
+        "email": email,
         "exp": expire,
         "type": "access"
 
@@ -51,13 +52,14 @@ def create_access_token(user_id: uuid.UUID) -> str:
 
     return encoded_jwt
 
-def create_refresh_token(user_id: uuid.UUID) -> tuple[str, datetime]:
+def create_refresh_token(user_id: uuid.UUID, email: str) -> tuple[str, datetime]:
     """Create refresh token"""
 
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REDFRESH_TOKEN_EXPIRE_DAYS)
 
     to_encode = {
         "sub": str(user_id),
+        "email": email,
         "exp": expire,
         "type": "refresh",
         "jti": str(uuid.uuid4())

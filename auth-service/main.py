@@ -87,8 +87,8 @@ def login(credentials: schemas.LoginRequest, db: Session= Depends(get_db)):
         )
     
     #All tests passed. Generate access and refresh tokens
-    access_token = auth.create_access_token(user.id)
-    refresh_token, refresh_expires = auth.create_refresh_token(user.id)
+    access_token = auth.create_access_token(user.id, user.email)
+    refresh_token, refresh_expires = auth.create_refresh_token(user.id, user.email)
 
     db_refresh_token = models.RefreshToken(
         user_id= user.id,
@@ -111,7 +111,7 @@ def refresh_access_token(refresh_token: schemas.RefreshTokenRequest, db : Sessio
     """Use refresh token to get a new access token"""
 
     #Decode the refresh token to get user id
-    user_id = auth.verify_token(token=refresh_token, expected_type="refresh")
+    user_id = auth.verify_token(token=refresh_token.refresh_token, expected_type="refresh")
 
     #If none is returned raise exception
     if user_id is None:
@@ -140,7 +140,7 @@ def refresh_access_token(refresh_token: schemas.RefreshTokenRequest, db : Sessio
         )
     
     #Create new access token
-    access_token = auth.create_access_token(user_id)
+    access_token = auth.create_access_token(db_user.id, db_user.email)
 
     return{
         "access_token": access_token
