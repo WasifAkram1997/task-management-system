@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_WINDOW: int = 60
 
+    # Proxy settings
+    # When True, the app trusts X-Forwarded-For / X-Real-IP headers from Nginx.
+    # Set to False in development when running without Nginx to prevent IP spoofing.
+    BEHIND_PROXY: bool = False
+
     #Service settings
     APP_NAME: str = "API Gateway"
     VERSION: str = "1.0.0"

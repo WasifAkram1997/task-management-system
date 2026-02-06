@@ -139,7 +139,28 @@ services:
     restart: unless-stopped
 
   # ==========================================
-  # API Gateway
+  # Nginx Reverse Proxy (entry point)
+  # Handles: TLS termination, IP rate limiting,
+  # access logging, security headers
+  # ==========================================
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      # - "443:443"  # Uncomment for TLS
+    depends_on:
+      - api-gateway
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # ==========================================
+  # API Gateway (application layer)
+  # Handles: JWT auth, user-aware rate limiting,
+  # structured logging, service routing
   # ==========================================
   api-gateway:
     build:
@@ -153,6 +174,7 @@ services:
       - REDIS_PORT=6379
       - AUTH_SERVICE_URL=http://auth-service:8000
       - TASK_SERVICE_URL=http://task-service:8002
+      - BEHIND_PROXY=true
     ports:
       - "8001:8001"
     depends_on:
