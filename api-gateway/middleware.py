@@ -44,7 +44,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             client_ip = forwarded_for.split(",")[0].strip()
             return client_ip
         
-        return request.client.host
+        # return request.client.host
+        return request.client.host if request.client else "127.0.0.1"
 
     async def dispatch(self, request: Request, call_next: Callable) -> JSONResponse:
         """Intercept every request to impose rate limiting"""

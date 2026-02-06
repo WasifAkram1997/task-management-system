@@ -31,7 +31,7 @@ async def setup_test_redis():
     test_redis_pool = ConnectionPool(
         host="localhost",  # Use localhost for local tests
         port=6379,
-        db=0,
+        db=1,
         password=settings.REDIS_PASSWORD,
         decode_responses=True,
     )
@@ -39,7 +39,7 @@ async def setup_test_redis():
     test_redis_client = redis.Redis(connection_pool=test_redis_pool)
 
     # Switch to test database (DB 1)
-    await test_redis_client.execute_command("SELECT", 1)
+    # await test_redis_client.execute_command("SELECT", 1)
 
     yield
 

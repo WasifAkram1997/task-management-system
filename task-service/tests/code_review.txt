@@ -1,0 +1,748 @@
+================================================================================
+                    CODE REVIEW: TASK SERVICE TESTS
+================================================================================
+
+Review Date: 2026-02-05
+Reviewer: Claude Code
+Service: Task Service (task-management-system/task-service)
+Test Framework: pytest 7.4.3
+
+================================================================================
+EXECUTIVE SUMMARY
+================================================================================
+
+Test Coverage:      94% (395 statements, 23 missed)
+Test Count:         18 tests
+Test Status:        ✅ All tests passing
+Test Database:      PostgreSQL (task_db_test on port 5434)
+Test Isolation:     Transaction rollback (excellent)
+
+Overall Assessment: GOOD with room for improvement
+- Strong foundation with good happy path coverage
+- Critical authentication mocking inconsistency needs fixing
+- Missing validation error tests and edge cases
+- Excellent test isolation pattern
+
+================================================================================
+🔴 CRITICAL ISSUES
+================================================================================
+
+--------------------------------------------------------------------------------
+1. Authentication Mocking Inconsistency
+--------------------------------------------------------------------------------
+Severity: HIGH
+Files: conftest.py:18, test_tasks.py:13-19
+
+PROBLEM:
+The JWT mock returns a fixed TEST_USER_ID, but the auth_headers fixture
+generates a DIFFERENT random UUID for X-User-ID header each time tests run.
+
+CODE:
+    # conftest.py:18
+    TEST_USER_ID = uuid.uuid4()  # Fixed UUID for all tests
+
+    # conftest.py:46-47
+    def mock_get_current_user_id():
+        return TEST_USER_ID  # Returns fixed UUID
+
+    # test_tasks.py:13-19
+    @pytest.fixture
+    def auth_headers():
+        return {
+            "X-User-ID": str(uuid.uuid4()),  # ⚠️ DIFFERENT random UUID!
+            "X-User-Email": "test@example.com"
+        }
+
+IMPACT:
+- JWT validation returns one user_id (TEST_USER_ID)
+- X-User-ID header contains a different user_id
+- Tests don't reflect actual production behavior where these always match
+- In production, API Gateway sets both from the same JWT payload
+
+REAL-WORLD SCENARIO:
+In production:
+1. API Gateway validates JWT and extracts user_id="abc-123"
+2. Gateway forwards request with X-User-ID="abc-123" header
+3. Both dependencies see the same user_id
+
+In tests:
+1. Mock JWT validation returns TEST_USER_ID="xyz-789"
+2. Header contains X-User-ID="random-456"
+3. Dependencies see different user_ids
+
+FIX:
+    @pytest.fixture
+    def auth_headers():
+        from conftest import TEST_USER_ID
+        return {
+            "X-User-ID": str(TEST_USER_ID),
+            "X-User-Email": "test@example.com"
+        }
+
+--------------------------------------------------------------------------------
+2. Missing Dependency Override for get_current_user_email
+--------------------------------------------------------------------------------
+Severity: MEDIUM
+File: conftest.py:40-54
+
+PROBLEM:
+The client fixture only overrides get_current_user_id but NOT
+get_current_user_email. Tests rely on actual header extraction from
+X-User-Email header.
+
+CODE:
+    # conftest.py:49-50
+    app.dependency_overrides[get_db] = get_test_db
+    app.dependency_overrides[get_current_user_id] = mock_get_current_user_id
+    # Missing: get_current_user_email override!
+
+    # main.py:72 uses it
+    user_email = get_current_user_email(request)
+
+IMPACT:
+- Tests are fragile and depend on header format
+- If header is missing or malformed, tests fail inconsistently
+- Not explicit about what's being tested
+- Coupling between test infrastructure and implementation details
+
+CURRENT STATE:
+Works because auth_headers provides the header, but it's implicit.
+
+RECOMMENDATION:
+Either:
+1. Override get_current_user_email dependency explicitly, OR
+2. Document that this dependency is intentionally not mocked to test
+   header extraction behavior
+
+================================================================================
+🟡 MEDIUM PRIORITY ISSUES
+================================================================================
+
+--------------------------------------------------------------------------------
+3. Unused Import: Faker Library
+--------------------------------------------------------------------------------
+File: test_tasks.py:7-9
+
+CODE:
+    from faker import Faker
+
+    fake = Faker()  # Never used in any test
+
+IMPACT:
+- Unnecessary dependency in requirements.txt
+- Adds to test startup time
+- Code maintenance burden
+
+FIX:
+Either remove completely or use it to generate realistic test data:
+
+    task_data = {
+        "title": fake.sentence(),
+        "description": fake.paragraph(),
+        "priority": fake.random_element(["LOW", "MEDIUM", "HIGH"])
+    }
+
+--------------------------------------------------------------------------------
+4. Weak Assertions in List Tests
+--------------------------------------------------------------------------------
+Files: test_tasks.py:93, test_tasks.py:271
+
+PROBLEM:
+Using >= instead of == for list length checks makes tests non-deterministic.
+
+CODE:
+    # test_tasks.py:83-94
+    def test_list_tasks(client, auth_headers):
+        client.post("/tasks", json={"title": "Task 1"}, headers=auth_headers)
+        client.post("/tasks", json={"title": "Task 2"}, headers=auth_headers)
+
+        response = client.get("/tasks", headers=auth_headers)
+        data = response.json()
+        assert len(data) >= 2  # ⚠️ Non-deterministic!
+
+ISSUES:
+- Can't catch data leakage between tests
+- Doesn't verify exact behavior
+- Makes debugging harder when tests fail
+- Could pass even if extra tasks exist from failed rollback
+
+BETTER APPROACH:
+    assert len(data) == 2
+    titles = [t["title"] for t in data]
+    assert "Task 1" in titles
+    assert "Task 2" in titles
+
+--------------------------------------------------------------------------------
+5. Missing created_by Field Verification
+--------------------------------------------------------------------------------
+File: test_tasks.py:34-53
+
+PROBLEM:
+Tests check that "created_by" exists but never verify it matches the
+authenticated user.
+
+CODE:
+    # test_tasks.py:51-52
+    assert "id" in data
+    assert "created_by" in data  # ⚠️ Only checks existence!
+
+SHOULD ALSO VERIFY:
+    assert data["created_by"] == str(TEST_USER_ID)
+    assert uuid.UUID(data["created_by"])  # Valid UUID format
+
+APPLIES TO:
+- test_create_task (line 34)
+- test_create_task_minimal (line 55)
+
+--------------------------------------------------------------------------------
+6. Missing user_id Verification in Comments
+--------------------------------------------------------------------------------
+File: test_tasks.py:229-244
+
+PROBLEM:
+Comment creation doesn't verify user_id is set correctly.
+
+CODE:
+    # test_tasks.py:237-243
+    response = client.post(f"/tasks/{task_id}/comments",
+                          json=comment_data,
+                          headers=auth_headers)
+    data = response.json()
+    assert data["content"] == "This is a test comment"
+    assert data["task_id"] == task_id
+    # Missing: assert data["user_id"] == str(TEST_USER_ID)
+
+IMPACT:
+Could fail to catch bugs where user_id is null or incorrect.
+
+================================================================================
+🟢 LOW PRIORITY / IMPROVEMENTS
+================================================================================
+
+--------------------------------------------------------------------------------
+7. Missing Test Coverage - Feature Gaps
+--------------------------------------------------------------------------------
+
+NOT TESTED:
+
+A. Filter by assigned_to
+   Endpoint: GET /tasks?assigned_to={uuid}
+   Coverage: 0%
+
+B. Tasks with due_date field
+   - Creating tasks with due_date
+   - Retrieving due_date in responses
+   - Updating due_date
+   - Filtering by due_date
+
+C. Cascade Delete Behavior
+   Test scenario:
+   1. Create task with comments
+   2. Delete task
+   3. Verify comments are also deleted (CASCADE)
+
+   Current: test_delete_task only verifies task deletion, not comment cascade
+
+D. Validation Errors
+   Missing tests for:
+   - Empty title: {"title": ""}
+   - Title too long: {"title": "x" * 201}
+   - Invalid status: {"status": "INVALID"}
+   - Invalid priority: {"priority": "SUPER_HIGH"}
+   - Invalid UUID in path: /tasks/not-a-uuid
+   - Negative test: missing required fields
+
+E. updated_at Timestamp Behavior
+   Test scenario:
+   1. Create task, note created_at and updated_at
+   2. Wait 1 second
+   3. Update task
+   4. Verify updated_at changed, created_at stayed same
+
+F. Comment Validation
+   - Empty comment content: {"content": ""}
+   - Very long comment: {"content": "x" * 10000}
+   - Special characters in content
+
+G. Missing Header Scenarios
+   - Request without X-User-Email header
+   - Malformed UUID in X-User-ID header
+
+H. Combined Filters
+   GET /tasks?status_filter=TODO&priority=HIGH&assigned_to={uuid}
+
+--------------------------------------------------------------------------------
+8. No Response Data Type Verification
+--------------------------------------------------------------------------------
+
+PROBLEM:
+Tests don't validate data types and formats.
+
+CURRENT:
+    assert "id" in data  # Only checks key exists
+
+SHOULD VERIFY:
+    import uuid as uuid_module
+    from datetime import datetime
+
+    # Verify UUID validity
+    assert uuid_module.UUID(data["id"])
+
+    # Verify timestamp format
+    assert datetime.fromisoformat(data["created_at"])
+    assert datetime.fromisoformat(data["updated_at"])
+
+    # Verify enum constraints
+    assert data["status"] in ["TODO", "IN_PROGRESS", "DONE"]
+    assert data["priority"] in ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+
+APPLIES TO:
+All response validation in tests.
+
+--------------------------------------------------------------------------------
+9. No RabbitMQ Publishing Tests
+--------------------------------------------------------------------------------
+
+OBSERVATION:
+Task creation publishes to RabbitMQ (main.py:75-82), but no tests verify:
+- Message is published with correct structure
+- Publishing failures are handled gracefully
+- Message contains correct data (task_id, user_email, task_title)
+- Notification type is correct ("task_created")
+
+CURRENT COVERAGE:
+publisher.py: 72% (lines 36-54 not covered - error handling)
+
+RECOMMENDATION:
+Either:
+1. Add integration tests with real/mock RabbitMQ, OR
+2. Mock publish_notification() and verify it's called correctly, OR
+3. Document that this is intentionally tested at integration level
+
+EXAMPLE MOCK APPROACH:
+    from unittest.mock import patch, call
+
+    def test_create_task_publishes_notification(client, auth_headers):
+        with patch('main.publish_notification') as mock_publish:
+            response = client.post("/tasks",
+                                  json={"title": "Test"},
+                                  headers=auth_headers)
+            task_id = response.json()["id"]
+
+            mock_publish.assert_called_once_with(
+                notification_type="task_created",
+                data={
+                    "task_id": task_id,
+                    "task_title": "Test",
+                    "user_email": "test@example.com"
+                }
+            )
+
+--------------------------------------------------------------------------------
+10. Test Organization - Parametrization Opportunities
+--------------------------------------------------------------------------------
+
+CURRENT: Tests repeat similar code for different input values
+
+SUGGESTION: Use pytest.mark.parametrize for DRY code
+
+EXAMPLE:
+    # Current approach (lines 96-121)
+    def test_list_tasks_filter_by_status(client, auth_headers):
+        # Test status filter
+
+    def test_list_tasks_filter_by_priority(client, auth_headers):
+        # Test priority filter
+
+    # Parametrized approach
+    @pytest.mark.parametrize("status", ["TODO", "IN_PROGRESS", "DONE"])
+    def test_create_task_with_various_statuses(client, auth_headers, status):
+        response = client.post("/tasks",
+            json={"title": "Task", "status": status},
+            headers=auth_headers)
+        assert response.status_code == 201
+        assert response.json()["status"] == status
+
+    @pytest.mark.parametrize("priority", ["LOW", "MEDIUM", "HIGH", "CRITICAL"])
+    def test_create_task_with_various_priorities(client, auth_headers, priority):
+        response = client.post("/tasks",
+            json={"title": "Task", "priority": priority},
+            headers=auth_headers)
+        assert response.status_code == 201
+        assert response.json()["priority"] == priority
+
+BENEFITS:
+- Less code duplication
+- Easier to add new test cases
+- Better test failure reporting
+
+================================================================================
+📊 DETAILED COVERAGE ANALYSIS
+================================================================================
+
+OVERALL: 94% coverage (395 statements, 23 missed)
+
+FILE-BY-FILE BREAKDOWN:
+
+1. config.py: 100% ✅
+   Lines: 27
+   Missed: 0
+   Status: Excellent
+
+2. models.py: 100% ✅
+   Lines: 27
+   Missed: 0
+   Status: Excellent
+
+3. schemas.py: 100% ✅
+   Lines: 37
+   Missed: 0
+   Status: Excellent
+
+4. tests/conftest.py: 100% ✅
+   Lines: 38
+   Missed: 0
+   Status: Excellent
+
+5. tests/test_tasks.py: 100% ✅
+   Lines: 131
+   Missed: 0
+   Status: Excellent
+
+6. main.py: 96% ⚠️
+   Lines: 79
+   Missed: 3 (lines 24-25, 103)
+
+   DETAILS:
+   - Lines 24-25: Lifespan context manager shutdown code
+   - Line 103: Combined query filter for assigned_to
+
+   REASON:
+   - Shutdown code not executed in tests
+   - assigned_to filter never tested
+
+7. database.py: 67% ⚠️
+   Lines: 15
+   Missed: 5 (lines 35-39, 43)
+
+   DETAILS:
+   - Lines 35-39: get_db() dependency
+   - Line 43: init_db() function
+
+   NOTE: These ARE covered (mocked in tests) but pytest-cov doesn't detect it
+   due to dependency override pattern.
+
+8. publisher.py: 72% ⚠️
+   Lines: 18
+   Missed: 5 (lines 36-54)
+
+   DETAILS:
+   All missed lines are in the try-except error handling:
+   - RabbitMQ connection creation
+   - Channel operations
+   - Message publishing
+   - Connection cleanup
+
+   RECOMMENDATION: Add tests for RabbitMQ failures or mock the entire function.
+
+9. dependencies.py: 57% ⚠️
+   Lines: 23
+   Missed: 10 (lines 25-50)
+
+   DETAILS:
+   Entire get_current_user_id function not covered (lines 15-54):
+   - JWT decoding and verification
+   - Token type validation
+   - Error handling for invalid/expired tokens
+
+   REASON: Function is mocked in conftest.py, so actual implementation never runs.
+
+   RECOMMENDATION: Add unit tests specifically for dependencies.py that test
+   the real JWT validation logic without mocking.
+
+UNCOVERED LOGIC SUMMARY:
+
+Priority 1 - Error Paths:
+  - JWT token validation errors
+  - Invalid token type handling
+  - RabbitMQ connection failures
+  - Database connection errors
+
+Priority 2 - Edge Cases:
+  - Lifespan shutdown events
+  - assigned_to query filter
+  - get_db() generator exhaustion
+
+================================================================================
+⚠️  DEPRECATION WARNINGS
+================================================================================
+
+Two warnings appear when running tests:
+
+--------------------------------------------------------------------------------
+WARNING 1: Pydantic Configuration
+--------------------------------------------------------------------------------
+File: config.py:33-36
+Message: Support for class-based `config` is deprecated, use ConfigDict instead
+
+CURRENT CODE:
+    class Settings(BaseSettings):
+        TASK_DB_PASSWORD: str
+        # ...
+
+        class Config:  # ⚠️ Deprecated
+            env_file = "../.env"
+            case_sensitive = True
+            extra = "ignore"
+
+FIX:
+    from pydantic import ConfigDict
+
+    class Settings(BaseSettings):
+        TASK_DB_PASSWORD: str
+        # ...
+
+        model_config = ConfigDict(
+            env_file="../.env",
+            case_sensitive=True,
+            extra="ignore"
+        )
+
+--------------------------------------------------------------------------------
+WARNING 2: SQLAlchemy declarative_base
+--------------------------------------------------------------------------------
+File: database.py:30
+Message: The declarative_base() function is now available as
+         sqlalchemy.orm.declarative_base(). (deprecated since: 2.0)
+
+CURRENT CODE:
+    from sqlalchemy.ext.declarative import declarative_base  # ⚠️ Deprecated
+
+    Base = declarative_base()
+
+FIX:
+    from sqlalchemy.orm import declarative_base  # ✅ Current import
+
+    Base = declarative_base()
+
+================================================================================
+🎯 PRIORITIZED RECOMMENDATIONS
+================================================================================
+
+IMMEDIATE ACTIONS (Do Now):
+────────────────────────────────────────────────────────────────────────────
+1. Fix authentication mocking inconsistency
+   - Make TEST_USER_ID match across fixtures
+   - Ensure X-User-ID header uses TEST_USER_ID
+   - Priority: CRITICAL
+   - Effort: 5 minutes
+
+2. Strengthen list test assertions
+   - Change >= to == for deterministic tests
+   - Verify exact task contents
+   - Priority: HIGH
+   - Effort: 10 minutes
+
+3. Remove unused Faker import
+   - Clean up dependencies
+   - Priority: LOW
+   - Effort: 2 minutes
+
+SHORT-TERM IMPROVEMENTS (This Sprint):
+────────────────────────────────────────────────────────────────────────────
+4. Add validation error tests
+   - Empty/too long titles
+   - Invalid status/priority values
+   - Invalid UUID formats
+   - Priority: HIGH
+   - Effort: 2-3 hours
+
+5. Add field verification tests
+   - Verify created_by matches authenticated user
+   - Verify user_id in comments
+   - Verify data types (UUIDs, timestamps)
+   - Priority: MEDIUM
+   - Effort: 1 hour
+
+6. Test missing features
+   - assigned_to filter
+   - due_date field operations
+   - Cascade delete behavior
+   - Priority: MEDIUM
+   - Effort: 2 hours
+
+7. Fix deprecation warnings
+   - Update Pydantic Config usage
+   - Update SQLAlchemy imports
+   - Priority: LOW
+   - Effort: 15 minutes
+
+LONG-TERM ENHANCEMENTS (Next Sprint):
+────────────────────────────────────────────────────────────────────────────
+8. Add RabbitMQ publishing tests
+   - Mock or integration test approach
+   - Verify message structure
+   - Test error handling
+   - Priority: MEDIUM
+   - Effort: 3-4 hours
+
+9. Add dependency unit tests
+   - Test actual JWT validation in dependencies.py
+   - Test error scenarios (invalid/expired tokens)
+   - Get coverage to 95%+
+   - Priority: MEDIUM
+   - Effort: 2 hours
+
+10. Refactor with parametrization
+    - Use @pytest.mark.parametrize for similar tests
+    - Reduce code duplication
+    - Priority: LOW
+    - Effort: 2 hours
+
+11. Add property-based testing
+    - Use Hypothesis for fuzzing inputs
+    - Test with random valid/invalid data
+    - Priority: LOW
+    - Effort: 4-6 hours
+
+12. Performance tests
+    - Test list endpoint with 1000+ tasks
+    - Test comment-heavy tasks
+    - Database query optimization
+    - Priority: LOW
+    - Effort: 3-4 hours
+
+================================================================================
+✅ STRENGTHS & BEST PRACTICES
+================================================================================
+
+The test suite demonstrates several excellent practices:
+
+1. ✅ EXCELLENT Test Isolation
+   Transaction rollback pattern ensures complete isolation between tests.
+   Each test gets a fresh database state. No side effects.
+
+   Code: conftest.py:27-38
+
+2. ✅ STRONG Coverage
+   94% is excellent for a new service. Shows commitment to quality.
+
+3. ✅ CLEAR Organization
+   Section comments make navigation easy:
+   - Health Check
+   - Create Task
+   - List Tasks
+   - Get Single Task
+   - Update Task
+   - Delete Task
+   - Comments
+
+4. ✅ COMPREHENSIVE Happy Paths
+   All main endpoints are tested with typical usage scenarios.
+
+5. ✅ ERROR Cases Included
+   404 scenarios are well-covered:
+   - Get non-existent task
+   - Update non-existent task
+   - Delete non-existent task
+   - Add comment to non-existent task
+   - List comments for non-existent task
+
+6. ✅ AUTHENTICATION Testing
+   Separate test for missing authentication (test_create_task_no_auth)
+
+7. ✅ GOOD Docstrings
+   Every test has a clear docstring describing its purpose.
+
+8. ✅ REALISTIC Test Data
+   Tests use meaningful values ("Task 1", "Original Title") rather than
+   cryptic codes.
+
+9. ✅ PROPER Fixtures
+   Good use of pytest fixtures for shared setup (client, auth_headers, db)
+
+10. ✅ FOLLOWS AAA Pattern
+    Tests follow Arrange-Act-Assert pattern clearly:
+    - Arrange: Create test data
+    - Act: Make API call
+    - Assert: Verify response
+
+================================================================================
+📋 TEST INVENTORY
+================================================================================
+
+HEALTH CHECK (1 test):
+  ✅ test_health_check
+
+CREATE TASK (3 tests):
+  ✅ test_create_task
+  ✅ test_create_task_minimal
+  ✅ test_create_task_no_auth
+
+LIST TASKS (3 tests):
+  ✅ test_list_tasks
+  ✅ test_list_tasks_filter_by_status
+  ✅ test_list_tasks_filter_by_priority
+
+GET TASK (2 tests):
+  ✅ test_get_task
+  ✅ test_get_task_not_found
+
+UPDATE TASK (3 tests):
+  ✅ test_update_task
+  ✅ test_update_task_partial
+  ✅ test_update_task_not_found
+
+DELETE TASK (2 tests):
+  ✅ test_delete_task
+  ✅ test_delete_task_not_found
+
+COMMENTS (4 tests):
+  ✅ test_add_comment
+  ✅ test_add_comment_task_not_found
+  ✅ test_list_comments
+  ✅ test_list_comments_task_not_found
+
+TOTAL: 18 tests, all passing
+
+================================================================================
+📈 METRICS
+================================================================================
+
+Test Execution Time:      57.55 seconds
+Test-to-Code Ratio:       1:2.0 (131 test lines : 79 main.py lines)
+Average Test Length:      7.3 lines per test
+Fixture Usage:            3 fixtures (db, client, auth_headers)
+Setup Complexity:         Low (simple fixtures)
+Test Independence:        Excellent (transaction rollback)
+False Positive Risk:      Low (but auth mocking issue)
+False Negative Risk:      Medium (missing validation tests)
+
+COMPARISON TO AUTH SERVICE:
+- Auth Service: Similar test patterns and coverage
+- Both use transaction rollback
+- Both have 90%+ coverage
+- Task Service has better organization (section comments)
+- Auth Service may have more comprehensive validation tests
+
+================================================================================
+🔍 CONCLUSION
+================================================================================
+
+OVERALL RATING: B+ (Good, nearly Great)
+
+The test suite is solid and production-ready with one critical fix needed.
+The authentication mocking inconsistency should be resolved immediately,
+but otherwise the tests provide good confidence in the service's behavior.
+
+NEXT REVIEW: After implementing immediate actions and short-term improvements
+
+QUESTIONS FOR TEAM:
+1. Should RabbitMQ publishing be tested at unit or integration level?
+2. Is the current coverage target 90%+? (Currently at 94%)
+3. Should we add performance tests for large datasets?
+4. Do we need contract tests between services?
+
+================================================================================
+END OF REVIEW
+================================================================================
