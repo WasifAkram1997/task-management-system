@@ -50,7 +50,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """Intercept every request to impose rate limiting"""
         #1 Extract user id/ip
         #First we try to find ip from token, if not found we fallback to limitting by ip
-        user_id = self._extract_user_id(request)
+        user_id = await self._extract_user_id(request)
         if user_id:
             rate_limit_key = f"ratelimit:user:{user_id}"
         else:
